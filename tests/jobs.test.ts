@@ -666,6 +666,45 @@ describe("research runner (async protocol §3)", () => {
 		assert.equal(isSubagentFailure("research", done.result as ResearchResult), false);
 	});
 
+	it("the researcher step limit is read fresh per job and a capped run still delivers its forced brief", async () => {
+		const chat = chatStore.createChat("Test: researcher step limit");
+		trackChat(chat.id);
+		const input = { question: "Capped question" };
+		chatStore.saveMessages(chat.id, nativeToolMessages("research it", "research", "call-capped", input));
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-capped" });
+		trackJob(job.id);
+		const delivery = fakeDeliver();
+		let limitReads = 0;
+		const runner = createJobRunner({
+			chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => null,
+			researcherMaxTurns: () => { limitReads++; return 2; },
+		});
+		const choices: unknown[] = [];
+		const search = (id: string) => (_context: unknown, options?: { toolChoice?: unknown }) => {
+			choices.push(options?.toolChoice);
+			return fauxAssistantMessage([fauxToolCall("web_search", { query: id }, { id })], { stopReason: "toolUse" });
+		};
+		researchModelOverride.current = fauxEngine([
+			search("s1"),
+			search("s2"),
+			(_context, options) => {
+				choices.push(options?.toolChoice);
+				return fauxAssistantMessage([fauxText("## Summary\nForced after two.")]);
+			},
+		]);
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			researchModelOverride.current = undefined;
+		}
+		assert.equal(limitReads, 1);
+		assert.deepEqual(choices, [undefined, undefined, "none"]);
+		const done = jobStore.getJob(job.id)!;
+		assert.equal(done.status, "done");
+		assert.equal((done.result as ResearchResult).brief, "## Summary\nForced after two.");
+		assert.equal(delivery.steers.length, 1);
+	});
+
 	it("a failing runner still steers (the teacher learns the outcome) and the job lands error", async () => {
 		const chat = chatStore.createChat("Test: runner failure");
 		trackChat(chat.id);

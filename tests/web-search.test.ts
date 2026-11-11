@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 import { createWebTools } from "../src/agent/tools/web.ts";
 import { safeFetchOverride } from "../src/agent/tools/safe-fetch.ts";
 import { jobTools } from "../src/agent/tools/jobs.ts";
-import { runResearcherAgent } from "../src/agent/subagents/researcher.ts";
+import { FINAL_BRIEF_INSTRUCTION, runResearcherAgent } from "../src/agent/subagents/researcher.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
 import type { JobStore } from "../src/core/ports.ts";
 import type { JobRecord } from "../src/core/contracts.ts";
@@ -180,6 +180,83 @@ describe("keyless researcher loop", () => {
 			}
 		});
 	}
+});
+
+describe("researcher step limit and the forced brief (researcher.ts)", () => {
+	const searchCall = (n: number) => fauxAssistantMessage(
+		[fauxToolCall("web_search", { query: `facet ${n}` }, { id: `search${n}` })], { stopReason: "toolUse" },
+	);
+
+	it("at the limit without text, ONE extra tool-free call writes the brief from the gathered transcript", async () => {
+		const choices: unknown[] = [];
+		const steps: FauxResponseStep[] = [1, 2, 3].map((n) => (_context, options) => {
+			choices.push(options?.toolChoice);
+			return searchCall(n);
+		});
+		steps.push((context, options) => {
+			choices.push(options?.toolChoice);
+			const last = context.messages.at(-1);
+			assert.ok(last && last.role === "user");
+			assert.equal(last.content, FINAL_BRIEF_INSTRUCTION, "the approved instruction, verbatim, as the last user message");
+			for (const id of ["search1", "search2", "search3"]) {
+				assert.ok(context.messages.some((m) => m.role === "toolResult" && m.toolCallId === id), `transcript keeps ${id}`);
+			}
+			const system = context.messages.find((m) => m.role === "system");
+			assert.ok(system && system.role === "system" && system.toolsAdded?.some((t) => t.name === "web_search"), "tools stay declared for the transcript's tool calls");
+			return fauxAssistantMessage([fauxText("## Summary\nForced brief.")]);
+		});
+		const faux = createFauxCore({});
+		faux.setResponses(steps);
+		const usages: unknown[] = [];
+		const brief = await runResearcherAgent("Research it", {
+			engine: { model: faux.getModel(), streamFn: faux.streamSimple },
+			search: () => stubProvider(),
+			maxTurns: 3,
+			onUsage: (u) => usages.push(u),
+		});
+		assert.equal(brief, "## Summary\nForced brief.");
+		assert.deepEqual(choices, [undefined, undefined, undefined, "none"], "only the extra call forbids tools");
+		assert.equal(usages.length, 4, "the extra call is billed like any step");
+	});
+
+	it("defaults to 12 calls before forcing the brief", async () => {
+		let calls = 0;
+		const steps: FauxResponseStep[] = Array.from({ length: 12 }, (_, i) => () => { calls++; return searchCall(i + 1); });
+		steps.push((_context, options) => {
+			calls++;
+			assert.equal(options?.toolChoice, "none");
+			return fauxAssistantMessage([fauxText("Brief after twelve.")]);
+		});
+		const faux = createFauxCore({});
+		faux.setResponses(steps);
+		assert.equal(await runResearcherAgent("Research it", {
+			engine: { model: faux.getModel(), streamFn: faux.streamSimple },
+			search: () => stubProvider(),
+		}), "Brief after twelve.");
+		assert.equal(calls, 13);
+	});
+
+	it("a brief written within the limit gets no extra call", async () => {
+		const faux = createFauxCore({});
+		faux.setResponses([searchCall(1), fauxAssistantMessage([fauxText("On-time brief.")])]);
+		assert.equal(await runResearcherAgent("Research it", {
+			engine: { model: faux.getModel(), streamFn: faux.streamSimple },
+			search: () => stubProvider(),
+			maxTurns: 2,
+		}), "On-time brief.");
+		assert.equal(faux.getPendingResponseCount(), 0);
+	});
+
+	it("a run that ends on its own without text is not retried (the job reports no text)", async () => {
+		const faux = createFauxCore({});
+		faux.setResponses([searchCall(1), fauxAssistantMessage([]), fauxAssistantMessage([fauxText("must not be requested")])]);
+		assert.equal(await runResearcherAgent("Research it", {
+			engine: { model: faux.getModel(), streamFn: faux.streamSimple },
+			search: () => stubProvider(),
+			maxTurns: 5,
+		}), "");
+		assert.equal(faux.getPendingResponseCount(), 1, "the extra call was never made");
+	});
 });
 
 /** Minimal in-memory JobStore — registry tests never touch the fs. */

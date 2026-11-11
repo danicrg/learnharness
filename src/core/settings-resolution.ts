@@ -76,6 +76,7 @@ export interface EffectiveSettings {
 	dictation: Required<DictationSettings>;
 	agent: {
 		workerRequestConcurrency: number;
+		researcherMaxTurns: number;
 		models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
 		/** Delta map as stored — consumers resolve absent key → enabled. */
 		tools: Record<string, boolean>;
@@ -203,6 +204,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		agent: {
 			workerRequestConcurrency: agent.workerRequestConcurrency ?? FACTORY_SETTINGS.agent.workerRequestConcurrency,
+			researcherMaxTurns: agent.researcherMaxTurns ?? FACTORY_SETTINGS.agent.researcherMaxTurns,
 			models,
 			tools: agent.tools ?? {},
 			prompts: agent.prompts ?? {},

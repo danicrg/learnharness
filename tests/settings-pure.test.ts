@@ -17,6 +17,7 @@ import {
 	composeSlotModel,
 	composeTool,
 	composeWorkerRequestConcurrency,
+	composeResearcherMaxTurns,
 	composeQuizMechanics,
 	sectionedSegments,
 } from "../components/settings/agent-section.tsx";
@@ -190,6 +191,25 @@ describe("agent section compose helpers — the replace-whole PUT body", () => {
 	it("worker concurrency rejects invalid drafts, including fractions rounded away by Number", () => {
 		for (const draft of ["0", "-1", "1.5", "1e-1", "8.0000000000000001", "99999999999999.99999", "9007199254740992", "1e999999", "1e", "NaN", "Infinity", "hello", "0x10"]) {
 			const result = composeWorkerRequestConcurrency(undefined, draft);
+			assert.equal(result.ok, false, draft);
+			if (!result.ok) assert.match(result.error, /positive, safely representable whole number/);
+		}
+	});
+
+	it("researcher step limit uses the same exact parse, preserving siblings; empty resets to 12", () => {
+		const before: AgentSettings = { workerRequestConcurrency: 3, researcherMaxTurns: 20, tools: { research: false } };
+		for (const [draft, value] of [["1", 1], ["30", 30], ["30.0", 30], ["2e1", 20]] as const) {
+			const next = composeResearcherMaxTurns(before, draft);
+			assert.ok(next.ok, draft);
+			assert.deepEqual(next.settings, { ...before, researcherMaxTurns: value });
+		}
+		assert.equal(before.researcherMaxTurns, 20, "input record is not mutated");
+		const reset = composeResearcherMaxTurns(before, " ");
+		assert.ok(reset.ok);
+		assert.deepEqual(reset.settings, { workerRequestConcurrency: 3, tools: { research: false } });
+		assert.equal(resolveSettings({ version: 1, agent: reset.settings }).agent.researcherMaxTurns, 12);
+		for (const draft of ["0", "-1", "1.5", "12.0000000000000001", "1e", "hello"]) {
+			const result = composeResearcherMaxTurns(undefined, draft);
 			assert.equal(result.ok, false, draft);
 			if (!result.ok) assert.match(result.error, /positive, safely representable whole number/);
 		}

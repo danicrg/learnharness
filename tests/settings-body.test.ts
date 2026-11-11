@@ -36,6 +36,20 @@ describe("parseGeneralSettingsBody", () => {
 });
 
 describe("parseAgentSettingsBody", () => {
+	it("researcher step limit accepts positive safe integers only; absent resets to the default", () => {
+		for (const value of [1, 12, 100_000, Number.MAX_SAFE_INTEGER]) {
+			assert.deepEqual(parseAgentSettingsBody({ researcherMaxTurns: value, tools: { research: false } }), {
+				ok: true, settings: { researcherMaxTurns: value, tools: { research: false } },
+			});
+		}
+		for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "12", "", null, true, [], {}]) {
+			const result = parseAgentSettingsBody({ researcherMaxTurns: value });
+			assert.equal(result.ok, false, String(value));
+			if (!result.ok) assert.match(result.error, /researcherMaxTurns.*positive.*safely representable whole number/);
+		}
+		assert.deepEqual(parseAgentSettingsBody({ researcherMaxTurns: undefined }), { ok: true, settings: {} });
+	});
+
 	it("worker concurrency accepts positive safe integers only; absent resets to the default", () => {
 		for (const value of [1, 8, 100_000, Number.MAX_SAFE_INTEGER]) {
 			assert.deepEqual(parseAgentSettingsBody({ workerRequestConcurrency: value, tools: { research: false } }), {

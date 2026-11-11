@@ -138,6 +138,9 @@ export function composeRemoveFolder(agent: AgentSettings | undefined, folder: st
 	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? false, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
 }
 
+/** The agent section's positive whole-number knobs (one parser for both). */
+type PositiveWholeNumberKey = "workerRequestConcurrency" | "researcherMaxTurns";
+
 /** Parse the numeric draft and compose the WHOLE agent section. Empty
  *  removes the override; invalid input never writes, rounds, or clamps.
  *  Pure — exported for tests. */
@@ -145,15 +148,32 @@ export function composeWorkerRequestConcurrency(
 	agent: AgentSettings | undefined,
 	value: string,
 ): { ok: true; settings: AgentSettings } | { ok: false; error: string } {
+	return composePositiveWholeNumber(agent, "workerRequestConcurrency", value);
+}
+
+/** The researcher step limit — same parse/compose rules as concurrency.
+ *  Pure — exported for tests. */
+export function composeResearcherMaxTurns(
+	agent: AgentSettings | undefined,
+	value: string,
+): { ok: true; settings: AgentSettings } | { ok: false; error: string } {
+	return composePositiveWholeNumber(agent, "researcherMaxTurns", value);
+}
+
+function composePositiveWholeNumber(
+	agent: AgentSettings | undefined,
+	key: PositiveWholeNumberKey,
+	value: string,
+): { ok: true; settings: AgentSettings } | { ok: false; error: string } {
 	const next = { ...agent };
 	const draft = value.trim();
 	if (draft === "") {
-		delete next.workerRequestConcurrency;
+		delete next[key];
 		return { ok: true, settings: next };
 	}
 	const invalid = { ok: false as const, error: "Enter a positive, safely representable whole number." };
-	const concurrency = Number(draft);
-	if (!Number.isSafeInteger(concurrency) || concurrency <= 0) return invalid;
+	const parsed = Number(draft);
+	if (!Number.isSafeInteger(parsed) || parsed <= 0) return invalid;
 	// Preserve native decimal/exponent syntax, but check fractional digits
 	// BEFORE accepting Number's result: e.g. 8.0000000000000001 rounds to 8.
 	// Trailing coefficient zeroes cancel negative decimal places exactly;
@@ -165,7 +185,7 @@ export function composeWorkerRequestConcurrency(
 	const coefficient = mantissa.replace(".", "");
 	const trailingZeroes = coefficient.length - coefficient.replace(/0+$/, "").length;
 	if (Number(decimal[2] ?? 0) - fractionalPlaces + trailingZeroes < 0) return invalid;
-	next.workerRequestConcurrency = concurrency;
+	next[key] = parsed;
 	return { ok: true, settings: next };
 }
 
@@ -387,6 +407,7 @@ export function AgentSection({
 	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | "search"; kind: "model" | "thinking" | "engine" | "cache" } | null>(null);
 	const [advancedModels, setAdvancedModels] = useState(false);
 	const [workerConcurrencyError, setWorkerConcurrencyError] = useState<string | null>(null);
+	const [researcherMaxTurnsError, setResearcherMaxTurnsError] = useState<string | null>(null);
 	const menuAnchorRef = useRef<HTMLSpanElement>(null);
 	const interactions = useInteractionLayers();
 
@@ -823,6 +844,39 @@ export function AgentSection({
 							}}
 						/>
 						{workerConcurrencyError && <p role="alert" className="text-xs text-error">{workerConcurrencyError}</p>}
+					</div>
+				</SettingsRow>
+				<SettingsRow
+					label="Researcher step limit"
+					hint="Maximum model calls a research job makes before it must write its brief. One extra call is always added to write it."
+					testid="researcher-max-turns-row"
+				>
+					<div
+						className="flex flex-col items-end gap-1"
+						onChangeCapture={() => setResearcherMaxTurnsError(null)}
+						onBlurCapture={(event) => {
+							// Incomplete numeric input (e.g. "1e") reads as empty: INVALID, not a reset.
+							if (event.target instanceof HTMLInputElement && event.target.validity.badInput) {
+								event.stopPropagation();
+								setResearcherMaxTurnsError("Enter a positive, safely representable whole number.");
+							}
+						}}
+					>
+						<CommitInput
+							type="number"
+							min={1}
+							step={1}
+							value={String(agent?.researcherMaxTurns ?? "")}
+							placeholder={String(resolvedAgent.researcherMaxTurns)}
+							ariaLabel="Researcher step limit"
+							testid="input-researcher-max-turns"
+							onCommit={(value) => {
+								const next = composeResearcherMaxTurns(agent, value);
+								setResearcherMaxTurnsError(next.ok ? null : next.error);
+								return next.ok ? onSectionChange(next.settings) : false;
+							}}
+						/>
+						{researcherMaxTurnsError && <p role="alert" className="text-xs text-error">{researcherMaxTurnsError}</p>}
 					</div>
 				</SettingsRow>
 			</SettingsGroup>

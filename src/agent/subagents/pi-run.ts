@@ -1,5 +1,5 @@
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, SimpleStreamOptions, ToolChoice, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import { randomUUID } from "node:crypto";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "../models.ts";
 import { usageWasAdmitted } from "../subscription-request-cycle.ts";
@@ -33,6 +33,10 @@ export interface SubagentRunOptions {
 	prompt?: string;
 	/** Max model calls (the old stepCountIs safety net). */
 	maxTurns: number;
+	/** Provider-neutral tool selection for every request of this run (absent
+	 *  = provider default). "none" keeps the tools declared — a transcript
+	 *  with tool calls stays valid — while forbidding new calls. */
+	toolChoice?: ToolChoice;
 	/** Abort mid-model-call (the real-kill semantics). */
 	abortSignal?: AbortSignal;
 	/** Money channel: one call per model request. */
@@ -79,6 +83,15 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	// Debug recorder (owner, 2026-10-04): raw provider events per job run.
 	const providerEvents = opts.chatId && opts.role ? providerEventObserver(opts.chatId, `job:${opts.role}`) : undefined;
 	const sessionId = randomUUID();
+	const toolChoice = opts.toolChoice;
+	// The agent loop passes SimpleStreamOptions (toolChoice included) through
+	// the engine's stream; the override rides along on every request.
+	const engineStream: PiEngine["streamFn"] = toolChoice === undefined
+		? engine.streamFn
+		: (model, context, options) => {
+			const withChoice: SimpleStreamOptions = { ...options, toolChoice };
+			return engine.streamFn(model, context, withChoice);
+		};
 	// Captures have a core-role identity. Explicit plugin engines have no such
 	// role; do not misattribute them or invent a new capture product surface.
 	const capture = opts.role ? createBackgroundCapture({ role: opts.role, runId: sessionId, sourceId: opts.chatId }) : undefined;
@@ -94,7 +107,7 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 			messages: opts.messages ?? [],
 		},
 		streamFn: backgroundCaptureStream(
-			opts.bypassWorkerRequestAdmission ? engine.streamFn : workerRequestStream(engine.streamFn),
+			opts.bypassWorkerRequestAdmission ? engineStream : workerRequestStream(engineStream),
 			capture,
 		),
 		prepareRequest: async () => {

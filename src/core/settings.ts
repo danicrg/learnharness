@@ -353,6 +353,11 @@ export interface AgentSettings {
 	 *  Direct conversations bypass this limit. Positive safe integers only:
 	 *  no arbitrary ceiling, rounding, or clamping. */
 	workerRequestConcurrency?: number;
+	/** Maximum model calls a research job makes before it must write its
+	 *  brief (default 12). One extra tool-free call is always added to write
+	 *  it. Positive safe integers only: no arbitrary ceiling, rounding, or
+	 *  clamping (the workerRequestConcurrency discipline). */
+	researcherMaxTurns?: number;
 	/** Background-role model/thinking overrides (absent role = config pin). */
 	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
@@ -514,7 +519,7 @@ export interface UserSettings {
  *  prompts default off — hence their absence here. */
 export interface FactorySettings {
 	version: number;
-	agent: Required<Pick<AgentSettings, "workerRequestConcurrency">>;
+	agent: Required<Pick<AgentSettings, "workerRequestConcurrency" | "researcherMaxTurns">>;
 	general: Required<GeneralSettings>;
 	dictation: Required<DictationSettings>;
 	appearance: {
@@ -537,7 +542,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	agent: { workerRequestConcurrency: 8 },
+	agent: { workerRequestConcurrency: 8, researcherMaxTurns: 12 },
 	general: { autoUpdate: true },
 	dictation: { language: "en" },
 	appearance: {
@@ -726,6 +731,9 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	// Invalid disk values drop: absence resolves to 8, never a silent clamp.
 	if (typeof raw.workerRequestConcurrency === "number" && Number.isSafeInteger(raw.workerRequestConcurrency) && raw.workerRequestConcurrency > 0) {
 		out.workerRequestConcurrency = raw.workerRequestConcurrency;
+	}
+	if (typeof raw.researcherMaxTurns === "number" && Number.isSafeInteger(raw.researcherMaxTurns) && raw.researcherMaxTurns > 0) {
+		out.researcherMaxTurns = raw.researcherMaxTurns;
 	}
 	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
 		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};

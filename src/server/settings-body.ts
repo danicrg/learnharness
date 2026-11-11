@@ -148,7 +148,7 @@ function parseBooleanMap(value: unknown, field: string): { map?: Record<string, 
 	return { map: out };
 }
 
-/** agent: { workerRequestConcurrency?, models?, tools?, prompts? } — model/thinking validity against
+/** agent: { workerRequestConcurrency?, researcherMaxTurns?, models?, tools?, prompts? } — model/thinking validity against
  *  the catalog is checked by the route (validateChatSettings discipline);
  *  prompt switch-on membership is checked by the route (needs the store). */
 export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentSettings> {
@@ -160,6 +160,12 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 			return { ok: false, error: "workerRequestConcurrency must be a positive, safely representable whole number" };
 		}
 		settings.workerRequestConcurrency = raw.workerRequestConcurrency;
+	}
+	if (raw.researcherMaxTurns !== undefined) {
+		if (typeof raw.researcherMaxTurns !== "number" || !Number.isSafeInteger(raw.researcherMaxTurns) || raw.researcherMaxTurns <= 0) {
+			return { ok: false, error: "researcherMaxTurns must be a positive, safely representable whole number" };
+		}
+		settings.researcherMaxTurns = raw.researcherMaxTurns;
 	}
 	if (raw.models !== undefined) {
 		const models = asRecord(raw.models);

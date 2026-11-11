@@ -129,6 +129,8 @@ const jobRunner = createJobRunner({
 	// null = honestly unavailable; the dispatch-level drop (below) uses the
 	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
+	// Researcher step limit (2026-11-10): read FRESH per job, like the engines.
+	researcherMaxTurns: () => effectiveSettings().agent.researcherMaxTurns,
 });
 /** The app's ONE extraction pipeline instance — both front doors share it:
  *  quiz-triggered session runs (turn-service) and notes imports

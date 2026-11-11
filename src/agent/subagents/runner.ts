@@ -89,6 +89,10 @@ export interface JobRunnerDeps {
 	 *  reports it as recoverable text). Absent seam (tests) reads the same;
 	 *  research dispatch and web_fetch do not require search credentials. */
 	searchProvider?: () => SearchProvider | null;
+	/** The researcher's step limit (Settings → agent.researcherMaxTurns),
+	 *  read fresh per job so a saved change applies to the next job. Absent
+	 *  (tests) = the researcher's factory default. */
+	researcherMaxTurns?: () => number;
 	/** Key-presence gate (provider-key interlude, 2026-09-25): given the
 	 *  resolved engine's provider + the kind's slot tier, return the
 	 *  refusal envelope when the provider's key is missing (null = run).
@@ -385,6 +389,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			const brief = await runResearcherAgent(prompt, {
 				engine: model,
 				search: deps.searchProvider,
+				maxTurns: deps.researcherMaxTurns?.(),
 				pdfDir,
 				abortSignal: loop.abortSignal,
 				chatId: loop.chatId,

@@ -4,6 +4,7 @@ import { createWebTools } from "../tools/web.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
 import type { SearchProvider } from "../../core/search.ts";
 import type { PiEngine } from "../models.ts";
+import { FACTORY_SETTINGS } from "../../core/settings.ts";
 import { runSubagent } from "./pi-run.ts";
 
 /**
@@ -79,12 +80,21 @@ export interface ResearcherRunOptions {
 	 *  to this per-job temp dir — PDFs from the web, read page-level. The
 	 *  runner owns its lifecycle (mkdtemp before, rm after). */
 	pdfDir?: string;
+	/** Model calls before the brief is forced (Settings → "Researcher step
+	 *  limit", agent.researcherMaxTurns). Absent = the factory default. */
+	maxTurns?: number;
 	abortSignal?: AbortSignal;
 	onUsage?: (usage: Usage) => void;
 	onToolStart?: (toolName: string, args: unknown) => void;
 	/** Debug: raw provider-event recording key (LH_PROVIDER_EVENTS=1). */
 	chatId?: string;
 }
+
+/** The forced-brief instruction (owner-approved wording, 2026-11-10): sent
+ *  as a user message on the one extra, tool-free call a run gets when it
+ *  reaches its step limit without having written its brief. */
+export const FINAL_BRIEF_INSTRUCTION =
+	"You have reached your research step limit. Do not call any more tools. Write your final brief now, in the required format, using only what you have gathered so far. Where a part of the question could not be verified, say so plainly instead of guessing.";
 
 /**
  * Run the researcher to completion: isolated context, web tools only, final
@@ -94,18 +104,32 @@ export interface ResearcherRunOptions {
 export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
 	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
 	if (opts.pdfDir) tools.push(...Object.values(createPdfReadTools(opts.pdfDir)));
-	const { text } = await runSubagent(tools, {
-		role: "researcher",
-		prompt,
+	const maxTurns = opts.maxTurns ?? FACTORY_SETTINGS.agent.researcherMaxTurns;
+	const shared = {
+		role: "researcher" as const,
 		engine: opts.engine,
 		systemPrompt: INSTRUCTIONS,
-		maxTurns: 12,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,
 		onToolStart: opts.onToolStart,
 		chatId: opts.chatId,
+	};
+	const run = await runSubagent(tools, { ...shared, prompt, maxTurns });
+	if (run.text.trim()) return run.text;
+	// The step limit ended the run mid-research (every call spent, the last
+	// one a tool call): one extra call writes the brief from what was
+	// gathered. toolChoice "none" keeps the tools declared, so the
+	// transcript's tool calls stay valid on every provider, but forbids new
+	// ones. A run that ended on its own without text is not retried.
+	const calls = run.newMessages.filter((m) => (m as { role?: string }).role === "assistant").length;
+	if (calls < maxTurns) return run.text;
+	const final = await runSubagent(tools, {
+		...shared,
+		messages: [...run.newMessages, { role: "user", content: FINAL_BRIEF_INSTRUCTION, timestamp: Date.now() }],
+		maxTurns: 1,
+		toolChoice: "none",
 	});
-	return text;
+	return final.text;
 }
 
 export type ResearcherAgent = ReturnType<typeof runResearcherAgent>;

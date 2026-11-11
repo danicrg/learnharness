@@ -23,6 +23,19 @@ import {
 import { BACKGROUND_MODEL_ROLES, sanitizeUserSettings, type UserSettings } from "../src/core/settings.ts";
 
 describe("resolveSettings", () => {
+	it("researcher step limit defaults to 12, honors overrides, and returns to 12 after invalid disk values drop", () => {
+		for (const record of [null, { version: 1 }, { version: 1, agent: {} }]) {
+			assert.equal(resolveSettings(record).agent.researcherMaxTurns, 12);
+		}
+		for (const value of [1, 30, Number.MAX_SAFE_INTEGER]) {
+			assert.equal(resolveSettings({ version: 1, agent: { researcherMaxTurns: value } }).agent.researcherMaxTurns, value);
+		}
+		for (const value of [0, 1.5, "12", null, Number.MAX_SAFE_INTEGER + 1]) {
+			const record = sanitizeUserSettings({ version: 1, agent: { researcherMaxTurns: value } });
+			assert.equal(resolveSettings(record).agent.researcherMaxTurns, 12);
+		}
+	});
+
 	it("worker concurrency defaults to 8, honors overrides, and returns to 8 after invalid disk values drop", () => {
 		for (const record of [null, { version: 1 }, { version: 1, agent: {} }]) {
 			assert.equal(resolveSettings(record).agent.workerRequestConcurrency, 8);

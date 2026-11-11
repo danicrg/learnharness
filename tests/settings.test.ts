@@ -21,7 +21,7 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {
 		assert.equal(CURRENT_SETTINGS_VERSION, 1);
 		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: true });
-		assert.deepEqual(FACTORY_SETTINGS.agent, { workerRequestConcurrency: 8 });
+		assert.deepEqual(FACTORY_SETTINGS.agent, { workerRequestConcurrency: 8, researcherMaxTurns: 12 });
 		// wave 7 collapse: the master switch ONLY + the extraction-UX
 		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
 		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
@@ -55,6 +55,17 @@ describe("isHexColor", () => {
 });
 
 describe("sanitizeUserSettings", () => {
+	it("researcher step limit keeps positive safe integers and drops invalid values without clamping", () => {
+		for (const value of [1, 12, 100_000, Number.MAX_SAFE_INTEGER]) {
+			const out = sanitizeUserSettings({ version: 1, agent: { researcherMaxTurns: value, tools: { research: false } } });
+			assert.deepEqual(out?.agent, { researcherMaxTurns: value, tools: { research: false } });
+		}
+		for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "12", "", null, true, [], {}]) {
+			const out = sanitizeUserSettings({ version: 1, agent: { researcherMaxTurns: value, tools: { research: false } } });
+			assert.deepEqual(out?.agent, { tools: { research: false } }, String(value));
+		}
+	});
+
 	it("worker concurrency keeps positive safe integers and drops invalid values without clamping", () => {
 		for (const value of [1, 8, 100_000, Number.MAX_SAFE_INTEGER]) {
 			const out = sanitizeUserSettings({ version: 1, agent: { workerRequestConcurrency: value, tools: { research: false } } });

@@ -183,6 +183,21 @@ describe("AgentSection (thin SSR)", () => {
 		assert.ok(tagOf(render({ workerRequestConcurrency: 23 }), "input-worker-request-concurrency").includes('value="23"'));
 	});
 
+	it("Models exposes the researcher step limit below worker concurrency, with exact help text and an unset default of 12", () => {
+		const render = (agent: { researcherMaxTurns?: number } | undefined) => renderToStaticMarkup(
+			<AgentSection agent={agent} models={undefined} graph={undefined} compaction={undefined} onSectionChange={() => true} onModelsChange={() => {}} onCompactionChange={() => true} />,
+		);
+		const html = render(undefined);
+		assert.ok(html.includes("Researcher step limit"));
+		assert.ok(html.includes("Maximum model calls a research job makes before it must write its brief. One extra call is always added to write it."));
+		const input = tagOf(html, "input-researcher-max-turns");
+		for (const attribute of ['type="number"', 'min="1"', 'step="1"', 'placeholder="12"', 'value=""']) assert.ok(input.includes(attribute), attribute);
+		assert.ok(!input.includes('max="'), "no arbitrary ceiling");
+		const row = html.indexOf('data-testid="researcher-max-turns-row"');
+		assert.ok(html.indexOf('data-testid="worker-request-concurrency-row"') < row && row < html.indexOf('data-testid="group-tools"'), "directly below concurrency, in Models");
+		assert.ok(tagOf(render({ researcherMaxTurns: 30 }), "input-researcher-max-turns").includes('value="30"'));
+	});
+
 	it("renders the three model SLOT rows (slots-only, fix wave: unpicked reads —, no Default option)", () => {
 		const html = renderToStaticMarkup(<AgentSection agent={undefined} models={undefined} graph={undefined} onSectionChange={() => true} onModelsChange={() => {}} />);
 		for (const slot of ["strong", "cheap", "vision"]) {
